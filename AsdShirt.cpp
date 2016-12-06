@@ -27,8 +27,12 @@ void handleDati();
 void handleAnalysis();
 void handleClient();
 void drawGraph();
+void sendImage();
 void sdcard();
 void getInfo();
+void timestamp();
+void tara();
+void analisiTarata();
 int sdSetup();
 int wifiSetup();
 int wireSetup();
@@ -36,6 +40,7 @@ void serverSetup();
 void readT12sensor();
 void readC7sensor();
 void readShoulderSensor();
+void vibra();
 
 /* Set these to your desired credentials. */
 const char *ssid = "asdShirt";
@@ -59,6 +64,9 @@ int AcX2,AcY2,AcZ2,Tmp2,GyX2,GyY2,GyZ2;
 double tmp_double2;
 int AcX3,AcY3,AcZ3,Tmp3,GyX3,GyY3,GyZ3;
 
+int AcX_riposo, AcY_riposo, AcZ_riposo;
+int AcX1_riposo, AcY1_riposo, AcZ1_riposo;
+
 double cifosi = 0;
 double scogliosi = 0;
 double rotazione = 0;
@@ -66,6 +74,14 @@ double rotazione = 0;
 double cifosi1 = 0;
 double scogliosi1 = 0;
 double rotazione1 = 0;
+
+double cifosi_riposo = 0;
+double scogliosi_riposo = 0;
+double rotazione_riposo = 0;
+
+double cifosi1_riposo = 0;
+double scogliosi1_riposo = 0;
+double rotazione1_riposo = 0;
 
 int acx_buffer[10];
 int index_acx=0;
@@ -106,7 +122,7 @@ void setup(){
 
 
 void loop(){
-  if(serverTimer==1){
+  if(serverTimer==100){
   serverTimer=0;
 
   void readT12sensor();
@@ -144,13 +160,16 @@ void loop(){
   cifosi = (atan2(AcX, AcZ))*90/1.6384;
   scogliosi = ((atan2(AcY, AcZ))*90/1.6384);
   rotazione = (atan2(AcX, AcY))*90/1.6384;
+  cifosi_riposo = (atan2(AcX_riposo, AcZ_riposo))*90/1.6384;
+  scogliosi = ((atan2(AcY_riposo, AcZ_riposo))*90/1.6384);
+  rotazione = (atan2(AcX_riposo, AcY_riposo))*90/1.6384;
   //Serial.print(","); Serial.print(AcX);
   //Serial.print(","); Serial.print(AcY);
   //Serial.print(","); Serial.print(AcZ);
   tmp_double= (Tmp/340.00)+36.53;
 
-  Serial.print(","); Serial.print(cifosi);
-  Serial.print(","); Serial.print(scogliosi);
+  Serial.print(","); Serial.print(cifosi-cifosi_riposo);
+  Serial.print(","); Serial.print(scogliosi-scogliosi_riposo);
   //Serial.print(" | Tmp(t) = "); Serial.print(tmp_double);  //equation for temperature in degrees C from datasheet
   //Serial.print(","); Serial.print(GyX);
   //Serial.print(","); Serial.print(GyY);
@@ -159,12 +178,15 @@ void loop(){
   cifosi1 = (atan2(AcX1, AcZ1))*90/1.6384;
   scogliosi1 = ((atan2(AcY1, AcZ1))*90/1.6384);
   rotazione1 = (atan2(AcX1, AcY1))*90/1.6384;
+  cifosi1 = (atan2(AcX1_riposo, AcZ1_riposo))*90/1.6384;
+  scogliosi1 = ((atan2(AcY1_riposo, AcZ1_riposo))*90/1.6384);
+  rotazione1 = (atan2(AcX1_riposo, AcY1_riposo))*90/1.6384;
   //Serial.print(","); Serial.print(AcX1);
   //Serial.print(","); Serial.print(AcY1);
   //Serial.print(","); Serial.print(AcZ1);
   tmp_double= (Tmp1/340.00)+36.53;
-  Serial.print(","); Serial.print(cifosi1);
-  Serial.print(","); Serial.print(scogliosi1);
+  Serial.print(","); Serial.print(cifosi1-cifosi1_riposo);
+  Serial.print(","); Serial.print(scogliosi1-scogliosi1_riposo);
   //Serial.print(" | Tmp1(t) = "); Serial.print(tmp_double);  //equation for temperature in degrees C from datasheet
   //Serial.print(","); Serial.print(GyX1);
   //Serial.print(","); Serial.print(GyY1);
@@ -226,6 +248,11 @@ void serverSetup(){
   server.on("/analisi", handleAnalysis);
   server.on("/info", getInfo);
   server.on("/sdcard", sdcard);
+  server.on("/vibra", vibra);
+  server.on("/sendimage", sendImage);
+  server.on("/timestamp", timestamp);
+  server.on("/analisitarata",analisiTarata);
+  server.on("/tara", tara);
   server.on("/", handleRoot);
   server.begin();
   Serial.println("HTTP server started");
@@ -233,7 +260,7 @@ void serverSetup(){
 }
 
 int wireSetup(){
-  
+
   Wire.begin(D3,D4);
   Wire.beginTransmission(primary_MPU_address);
   Wire.write(0x6B);  // PWR_MGMT_1 register
@@ -277,6 +304,24 @@ int wifiSetup(){
       // Print the IP address
       Serial.println(WiFi.localIP());
       connectedToKnown =true;
+    }
+    else if(WiFi.SSID(i) == "Edisu Piemonte"){
+      if(!connectedToKnown){
+        WiFi.begin("Edisu Piemonte", "");
+
+        while (WiFi.status() != WL_CONNECTED) {
+          delay(1000);
+          Serial.print(".");
+        }
+        Serial.println("");
+        Serial.println("WiFi connected");
+
+        Serial.println("Server started");
+
+        // Print the IP address
+        Serial.println(WiFi.localIP());
+        connectedToKnown =true;
+      }
     }
 
     else{
@@ -325,7 +370,11 @@ int sdSetup(){
   Serial.print("sd card done");
 
 }
-
+void sendImage(){
+  File f = SD.open("bridge.png", FILE_READ);
+  server.streamFile(f, "image/png");
+  f.close();
+}
 void getInfo(){
   char testo[2000];
   for(int i =0;i<10;i++){
@@ -347,13 +396,14 @@ void handleAnalysis(){
   int val = analogRead(0);
   char testo[2000];
   for(int i =0;i<1;i++){
-    sprintf(testo,"%d,%d,%d,%d,%d", cifosi, scogliosi, cifosi1, scogliosi1, cifosi1-cifosi);
+    double difference = cifosi1-cifosi1_riposo-cifosi-cifosi_riposo;
+    sprintf(testo,"%d,%d,%d,%d,%d", cifosi-cifosi_riposo, scogliosi-scogliosi_riposo, cifosi1-cifosi1_riposo, scogliosi1_riposo, difference);
   }
   String out = "";
-  double gobba= cifosi1-cifosi;
+  double gobba= cifosi1-cifosi1_riposo-cifosi-cifosi_riposo;
   String g = String(gobba);
   //out += ""+g;
-  out +=String(cifosi)+","+String(scogliosi)+","+String(cifosi1)+","+String(scogliosi1)+","+g;
+  out +=String(cifosi-cifosi_riposo)+","+String(scogliosi-scogliosi_riposo)+","+String(cifosi1-cifosi1_riposo)+","+String(scogliosi1-scogliosi1_riposo)+","+g;
 
   Serial.print("analisi fornita :) ");
   server.send(200, "text/html", out);
@@ -396,10 +446,45 @@ void drawGraph() {
   server.send ( 200, "image/svg+xml", out);
 }
 void sdcard(){
-  String out = "TODO";
-
-
+  String out = "TODO get arbitrary file from sd card";
   server.send(200, "text/html", out);
+}
+void timestamp(){
+  String out = "TODO grazie per avermi detto l'ora!";
+  server.send(200, "text/html", out);
+}
+void tara(){
+  String out = "il dato attuale viene registrato come tara\n";
+  AcX_riposo=AcX;
+  AcY_riposo=AcY;
+  AcZ_riposo=AcZ;
+  AcX1_riposo=AcX1;
+  AcY1_riposo=AcY1;
+  AcZ1_riposo=AcZ1;
+  out += "dati registrati come tara\n";
+  out = out +"X "+ AcX_riposo + ",Y "+AcY_riposo+",Z "+AcZ_riposo+"\n";
+  out = out +"X1 "+AcX1_riposo+",Y1 "+AcY1_riposo+",Z1 "+AcZ1_riposo+"\n";
+  server.send(200, "text/html", out);
+}
+void analisiTarata(){
+  String out = "dati netti\n";
+  AcX=AcX-AcX_riposo;
+  AcY=AcY-AcY_riposo;
+  AcZ=AcZ-AcZ_riposo;
+  AcX1=AcX1-AcX1_riposo;
+  AcY1=AcY1-AcY1_riposo;
+  AcZ1=AcZ1-AcZ1_riposo;
+  out += "dati registrati come tara\n";
+  out = out +"X "+ AcX + ",Y "+AcY+",Z "+AcZ+"\n";
+  out = out +"X1 "+AcX1+",Y1 "+AcY1+",Z1 "+AcZ1+"\n";
+  server.send(200, "text/html", out);
+}
+int timer_vibra=0;
+void vibra(){
+  digitalWrite(D0, HIGH);
+  delay(1000);
+  digitalWrite(D0, LOW);
+
 }
 
 void readT12sensor(){
