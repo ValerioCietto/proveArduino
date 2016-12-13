@@ -14,10 +14,7 @@
 //TODO
 /*
 -polling NTP// alternative js tells the nodemcu the time
--add button inizia
--add button finisci calibrazione
 -read wifi ssid pass from sd card
--vibration with mosfet
 -nome sd incrementale, possibly with date time (DATA-2016-11-9-16-45-V1.CSV)
 */
 
@@ -33,6 +30,7 @@ void getInfo();
 void timestamp();
 void tara();
 void analisiTarata();
+void showPosition();
 int sdSetup();
 int wifiSetup();
 int wireSetup();
@@ -49,8 +47,9 @@ const char *password = "12345678";
 ESP8266WebServer server(80);
 
 MDNSResponder mdns;
-
+int pin_vibratore = D1;
 int sd_true=0;
+long number_lines=0;
 const int primary_MPU_address=0x68;
 const int secondary_MPU_address=0x69;
 
@@ -71,9 +70,16 @@ double cifosi = 0;
 double scogliosi = 0;
 double rotazione = 0;
 
+double cifosi_tarata = 0;
+
 double cifosi1 = 0;
 double scogliosi1 = 0;
 double rotazione1 = 0;
+
+double cifosi1_tarata = 0;
+
+double cifosi_dorsale = 0;
+double cifosi_dorsale_tarata = 0;
 
 double cifosi_riposo = 0;
 double scogliosi_riposo = 0;
@@ -101,6 +107,13 @@ int maxNumEntries=3600;
 File data;
 File network_config;
 String filename="data.csv";
+int giorno;
+int mese;
+int anno;
+int ora;
+int minuto;
+int secondo;
+
 
 int serverTimer=0;
 /*
@@ -110,21 +123,54 @@ orange scl
 yellow sda
 */
 
+/*
+CS D8
+SCK D5
+MOSI D7
+MISO D6
+
+
+*/
+
 void setup(){
 
   Serial.begin(115200);
+  pinMode(pin_vibratore, OUTPUT);
+  digitalWrite(pin_vibratore, HIGH);
+  delay(100);
+  digitalWrite(pin_vibratore, LOW);
+  delay(100);
+  digitalWrite(pin_vibratore, HIGH);
+  delay(300);
+  digitalWrite(pin_vibratore, LOW);
   wifiSetup();
   sdSetup();
   wireSetup();
   serverSetup();
 
+  digitalWrite(pin_vibratore, HIGH);
+  delay(300);
+  digitalWrite(pin_vibratore, LOW);
+  delay(100);
+  digitalWrite(pin_vibratore, HIGH);
+  delay(100);
+  digitalWrite(pin_vibratore, LOW);
+
 }
 
 
+int millisecondi_readSensor=0;
+int millisecondi_calcoli=0;
+int millisecondi_prints=0;
+int millisecondi_sdCard=0;
+int millisecondi_server=0;
+int timerAvvisoCifosi=0;
 void loop(){
-  if(serverTimer==100){
+  if(serverTimer==10){
   serverTimer=0;
+  timerAvvisoCifosi-=10;
 
+  millisecondi_readSensor=millis();
   void readT12sensor();
   Wire.beginTransmission(primary_MPU_address);
   Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
@@ -155,60 +201,70 @@ void loop(){
   Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
   Wire.endTransmission(false);
   Wire.requestFrom(secondary_MPU_address,14,1);  // request a total of 14 registers
-  AcX2=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  //AcX2=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
+  millisecondi_readSensor=millis()-millisecondi_readSensor;
 
+  millisecondi_calcoli=millis();
+  //CALCOLI
   cifosi = (atan2(AcX, AcZ))*90/1.6384;
   scogliosi = ((atan2(AcY, AcZ))*90/1.6384);
   rotazione = (atan2(AcX, AcY))*90/1.6384;
   cifosi_riposo = (atan2(AcX_riposo, AcZ_riposo))*90/1.6384;
-  scogliosi = ((atan2(AcY_riposo, AcZ_riposo))*90/1.6384);
-  rotazione = (atan2(AcX_riposo, AcY_riposo))*90/1.6384;
-  //Serial.print(","); Serial.print(AcX);
-  //Serial.print(","); Serial.print(AcY);
-  //Serial.print(","); Serial.print(AcZ);
+  scogliosi_riposo = ((atan2(AcY_riposo, AcZ_riposo))*90/1.6384);
+  rotazione_riposo = (atan2(AcX_riposo, AcY_riposo))*90/1.6384;
   tmp_double= (Tmp/340.00)+36.53;
-
-  Serial.print(","); Serial.print(cifosi-cifosi_riposo);
-  Serial.print(","); Serial.print(scogliosi-scogliosi_riposo);
-  //Serial.print(" | Tmp(t) = "); Serial.print(tmp_double);  //equation for temperature in degrees C from datasheet
-  //Serial.print(","); Serial.print(GyX);
-  //Serial.print(","); Serial.print(GyY);
-  //Serial.print(","); Serial.print(GyZ);
 
   cifosi1 = (atan2(AcX1, AcZ1))*90/1.6384;
   scogliosi1 = ((atan2(AcY1, AcZ1))*90/1.6384);
   rotazione1 = (atan2(AcX1, AcY1))*90/1.6384;
-  cifosi1 = (atan2(AcX1_riposo, AcZ1_riposo))*90/1.6384;
-  scogliosi1 = ((atan2(AcY1_riposo, AcZ1_riposo))*90/1.6384);
-  rotazione1 = (atan2(AcX1_riposo, AcY1_riposo))*90/1.6384;
-  //Serial.print(","); Serial.print(AcX1);
-  //Serial.print(","); Serial.print(AcY1);
-  //Serial.print(","); Serial.print(AcZ1);
-  tmp_double= (Tmp1/340.00)+36.53;
-  Serial.print(","); Serial.print(cifosi1-cifosi1_riposo);
-  Serial.print(","); Serial.print(scogliosi1-scogliosi1_riposo);
-  //Serial.print(" | Tmp1(t) = "); Serial.print(tmp_double);  //equation for temperature in degrees C from datasheet
-  //Serial.print(","); Serial.print(GyX1);
-  //Serial.print(","); Serial.print(GyY1);
-  //Serial.print(","); Serial.println(GyZ1);
+  cifosi1_riposo = (atan2(AcX1_riposo, AcZ1_riposo))*90/1.6384;
+  scogliosi1_riposo = ((atan2(AcY1_riposo, AcZ1_riposo))*90/1.6384);
+  rotazione1_riposo = (atan2(AcX1_riposo, AcY1_riposo))*90/1.6384;
+  tmp_double1= (Tmp1/340.00)+36.53;
 
-  Serial.print(","); Serial.print(AcX2);
-  Serial.print(","); Serial.print(AcX3);
+  cifosi_dorsale = cifosi1-cifosi;
+  cifosi_dorsale_tarata = (cifosi1-cifosi1_riposo) - (cifosi-cifosi_riposo);
+  //FINE CALCOLI
+  millisecondi_calcoli=millis()-millisecondi_calcoli;
 
-
-  Serial.print(","); Serial.print(cifosi1-cifosi);
-
-
-  if(AcX<14000){
-    //Serial.print("vibra");
+  millisecondi_prints=millis();
+  boolean rawData=false;
+  if(rawData){
+    String printLine="";
+    printLine = printLine + ","+AcX+","+AcY+","+AcZ;
+    printLine = printLine + ","+tmp_double;
+    printLine = printLine + ","+GyX+","+GyY+","+GyZ;
+    printLine = printLine + ","+AcX1+","+AcY1+","+AcZ1;
+    printLine = printLine + ","+tmp_double1;
+    printLine = printLine + ","+GyX1+","+GyY1+","+GyZ1;
+    Serial.println(printLine);
+  }
+  boolean analisis=true;
+  if(analisis){
+    String printLine="";
+    printLine = printLine + ","+cifosi+","+scogliosi+","+cifosi1+","+scogliosi1+","+cifosi_dorsale;
+    Serial.println(printLine);
+  }
+  boolean taratura=true;
+  if(taratura){
+    String printLine="";
+    printLine = printLine+ ","+cifosi_dorsale_tarata;
+    Serial.println(printLine);
   }
 
- Serial.println();
+  millisecondi_prints=millis()-millisecondi_prints;
 
+  if(cifosi_dorsale_tarata>20){
+    digitalWrite(pin_vibratore, HIGH);
+    timerAvvisoCifosi+=100;
+  }
+  if(timerAvvisoCifosi<0){
+    timerAvvisoCifosi=0;
+    digitalWrite(pin_vibratore, LOW);
+  }
 
+  millisecondi_sdCard = millis();
   data = SD.open(filename, FILE_WRITE);
-
-  // if the file opened okay, write to it:
   if (data) {
     //Serial.print("Writing to data.txt...");
     data.print(AcX);data.print(",");
@@ -225,7 +281,7 @@ void loop(){
     data.print(tmp_double);data.print(",");
     data.print(GyX1);data.print(",");
     data.print(GyY1);data.print(",");
-    data.print(GyZ1);data.println(",;");
+    data.print(GyZ1);data.println(",");
     // close the file:
     data.close();
     //Serial.println("done.");
@@ -234,6 +290,10 @@ void loop(){
     // if the file didn't open, print an error:
     //Serial.println("error opening data.txt");
   }
+  number_lines=number_lines++;
+  millisecondi_sdCard=millis()-millisecondi_sdCard;
+  String out = out+"," +millisecondi_readSensor + "," + millisecondi_calcoli+ "," + millisecondi_prints+ "," +millisecondi_sdCard;
+  Serial.println(out);
 
   }else{
     server.handleClient();
@@ -253,6 +313,7 @@ void serverSetup(){
   server.on("/timestamp", timestamp);
   server.on("/analisitarata",analisiTarata);
   server.on("/tara", tara);
+  server.on("/showposition", showPosition);
   server.on("/", handleRoot);
   server.begin();
   Serial.println("HTTP server started");
@@ -261,7 +322,7 @@ void serverSetup(){
 
 int wireSetup(){
 
-  Wire.begin(D3,D4);
+  Wire.begin(D2,D3);
   Wire.beginTransmission(primary_MPU_address);
   Wire.write(0x6B);  // PWR_MGMT_1 register
   Wire.write(0);     // set to zero (wakes up the MPU-6050)
@@ -362,7 +423,37 @@ int sdSetup(){
   }
   else{
   Serial.println("initialization done.");
-  // Check to see if the file exists:
+  data = SD.open(filename, FILE_WRITE);
+
+  // if the file opened okay, write to it:
+  if (data) {
+    //Serial.print("Writing to data.txt...");
+    data.print("AcX");data.print(",");
+    data.print("AcY");data.print(",");
+    data.print("AcZ");data.print(",");
+    data.print("tmp_double");data.print(",");
+    data.print("GyX");data.print(",");
+    data.print("GyY");data.print(",");
+    data.print("GyZ");data.print(",");
+
+    data.print("AcX1");data.print(",");
+    data.print("AcY1");data.print(",");
+    data.print("AcZ1");data.print(",");
+    data.print("tmp_double");data.print(",");
+    data.print("GyX1");data.print(",");
+    data.print("GyY1");data.print(",");
+    data.print("GyZ1");data.println(",");
+    // close the file:
+    data.close();
+    //Serial.println("done.");
+    sd_true=1;
+  } else {
+    // if the file didn't open, print an error:
+    //Serial.println("error opening data.txt");
+  }
+  number_lines=number_lines++;
+
+
 
   }
 
@@ -375,12 +466,36 @@ void sendImage(){
   server.streamFile(f, "image/png");
   f.close();
 }
-void getInfo(){
-  char testo[2000];
-  for(int i =0;i<10;i++){
-    sprintf(testo,"Maglietta");
+void showPosition(){
+  if(cifosi<40){
+    File f = SD.open("pos01.png", FILE_READ);
+    server.streamFile(f, "image/png");
+  }else if(cifosi<60){
+    File f = SD.open("pos02.png", FILE_READ);
+    server.streamFile(f, "image/png");
+  }else{
+    File f = SD.open("pos03.png", FILE_READ);
+    server.streamFile(f, "image/png");
   }
-  server.send(200, "text/html", testo);
+
+}
+void getInfo(){
+  int sec = millis() / 1000;
+  int min = sec / 60;
+  int hr = min / 60;
+  String out = "";
+
+  out = out +"attivo da "+hr+":"+min+":"+sec+", ";
+  if(sd_true==1){
+    out +="SD card attiva";
+  }
+  else{
+    out +="errore inizializzazione SD card";
+  }
+  out +=" numero rilevamenti: "+number_lines;
+
+  Serial.print("info fornite :) ");
+  server.send(200, "text/html", out);
 }
 
 void handleDati(){
@@ -451,6 +566,12 @@ void sdcard(){
 }
 void timestamp(){
   String out = "TODO grazie per avermi detto l'ora!";
+  out = out+"server args"+server.args();
+  out = out+" giorno "+server.arg(0);
+  out = out+" mese "+server.arg(1);
+  out = out+" anno "+server.arg(2);
+  Serial.println(out);
+
   server.send(200, "text/html", out);
 }
 void tara(){
@@ -467,24 +588,18 @@ void tara(){
   server.send(200, "text/html", out);
 }
 void analisiTarata(){
-  String out = "dati netti\n";
-  AcX=AcX-AcX_riposo;
-  AcY=AcY-AcY_riposo;
-  AcZ=AcZ-AcZ_riposo;
-  AcX1=AcX1-AcX1_riposo;
-  AcY1=AcY1-AcY1_riposo;
-  AcZ1=AcZ1-AcZ1_riposo;
-  out += "dati registrati come tara\n";
-  out = out +"X "+ AcX + ",Y "+AcY+",Z "+AcZ+"\n";
-  out = out +"X1 "+AcX1+",Y1 "+AcY1+",Z1 "+AcZ1+"\n";
+  String out = "";
+
+  out = out +""+cifosi_dorsale_tarata;
   server.send(200, "text/html", out);
 }
 int timer_vibra=0;
 void vibra(){
-  digitalWrite(D0, HIGH);
-  delay(1000);
-  digitalWrite(D0, LOW);
-
+  digitalWrite(pin_vibratore, HIGH);
+  delay(100);
+  digitalWrite(pin_vibratore, LOW);
+  Serial.print(" vibrato ");
+ server.send(200, "text/html", "vibrato");
 }
 
 void readT12sensor(){
